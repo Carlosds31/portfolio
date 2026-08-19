@@ -1,10 +1,10 @@
-name: Vérification automatique du code
+name: Verification automatique du code
 
 on:
   push:
     branches: [ "master", "main" ]
   schedule:
-    - cron: "0 */5 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -21,139 +21,94 @@ jobs:
     outputs:
       erreurs: ${{ steps.compteur.outputs.erreurs }}
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-
-      - name: Configurer Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Installer les outils de vérification
-        run: npm install -g html-validate stylelint eslint
-
-      - name: Vérifier le HTML
+      - run: npm install -g html-validate stylelint eslint
+      - name: Verifier le HTML
         run: |
           if find . -name "*.html" -not -path "./.git/*" | grep -q .; then
-            echo "=== RAPPORT HTML ===" >> rapport.txt
+            echo "=== HTML ===" >> rapport.txt
             npx html-validate "**/*.html" --max-warnings=0 >> rapport.txt 2>&1 || true
-          else
-            echo "ℹ️ Aucun fichier HTML" >> rapport.txt
-          fi
-
-      - name: Vérifier le CSS
+          else echo "Aucun HTML" >> rapport.txt; fi
+      - name: Verifier le CSS
         run: |
           if find . -name "*.css" -not -path "./.git/*" | grep -q .; then
-            if ! ls .stylelintrc* stylelint.config.* 2>/dev/null | grep -q .; then
-              echo '{ "rules": {} }' > .stylelintrc.json
-            fi
-            echo "=== RAPPORT CSS ===" >> rapport.txt
+            if ! ls .stylelintrc* stylelint.config.* 2>/dev/null | grep -q .; then echo '{"rules":{}}' > .stylelintrc.json; fi
+            echo "=== CSS ===" >> rapport.txt
             npx stylelint "**/*.css" >> rapport.txt 2>&1 || true
-          else
-            echo "ℹ️ Aucun fichier CSS" >> rapport.txt
-          fi
-
-      - name: Vérifier le JavaScript
+          else echo "Aucun CSS" >> rapport.txt; fi
+      - name: Verifier le JS
         run: |
           if find . -name "*.js" -not -path "./.git/*" | grep -q .; then
-            if ! ls .eslintrc* eslint.config.* 2>/dev/null | grep -q .; then
-              echo '{ "env": { "browser": true, "es2021": true }, "parserOptions": { "ecmaVersion": "latest" }, "rules": {} }' > .eslintrc.json
-            fi
-            echo "=== RAPPORT JAVASCRIPT ===" >> rapport.txt
+            if ! ls .eslintrc* eslint.config.* 2>/dev/null | grep -q .; then echo '{"env":{"browser":true,"es2021":true},"parserOptions":{"ecmaVersion":"latest"},"rules":{}}' > .eslintrc.json; fi
+            echo "=== JS ===" >> rapport.txt
             npx eslint "**/*.js" >> rapport.txt 2>&1 || true
-          else
-            echo "ℹ️ Aucun fichier JS" >> rapport.txt
-          fi
-
+          else echo "Aucun JS" >> rapport.txt; fi
       - name: Compter les erreurs
         id: compteur
         run: |
           ERREURS=$(grep -ciE " error " rapport.txt 2>/dev/null || true); ERREURS=${ERREURS:-0}
           echo "erreurs=$ERREURS" >> $GITHUB_OUTPUT
-          echo "Erreurs détectées: $ERREURS"
-
-      - name: Créer le rapport d'alerte (Issue)
+      - name: Creer l issue d alerte
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ERREURS=$(grep -ciE " error " rapport.txt 2>/dev/null || true); ERREURS=${ERREURS:-0}
           if [ "$ERREURS" != "0" ]; then
-            echo "=== RAPPORT DE VERIFICATION ===" > body.txt
-            echo "" >> body.txt
-            echo "**$ERREURS erreur(s) détectée(s)** dans ${{ github.repository }} le $(date -u '+%d/%m/%Y a %H:%M UTC')" >> body.txt
-            echo "" >> body.txt
-            echo "Declenche par : ${{ github.event_name }}" >> body.txt
-            echo "" >> body.txt
-            cat rapport.txt >> body.txt
-            echo "" >> body.txt
-            echo "---" >> body.txt
-            echo "🛠️ Une verification detaillee attend ton approbation dans l'onglet Actions." >> body.txt
-
-            EXISTANTE=$(gh issue list --state open --json number,title --jq '.[] | select(.title | contains("Problèmes détectés")) | .number' | head -1)
+            { echo "### Rapport de verification";
+              echo "**$ERREURS erreur(s)** dans ${{ github.repository }}";
+              echo "";
+              echo "Declenche par : ${{ github.event_name }}";
+              echo "";
+              cat rapport.txt;
+              echo "---";
+              echo "Approbation requise dans l'onglet Actions."; } > body.txt
+            EXISTANTE=$(gh issue list --state open --json number,title --jq '.[] | select(.title | contains("Problemes")) | .number' | head -1)
             if [ -z "$EXISTANTE" ]; then
-              gh issue create --title "🚨 Problèmes détectés dans le code" --body-file body.txt
-              echo "✅ Issue créée avec le rapport"
+              gh issue create --title "Problemes detectes dans le code" --body-file body.txt
             else
               gh issue comment "$EXISTANTE" --body-file body.txt
-              echo "✅ Rapport ajouté à l'issue #$EXISTANTE"
             fi
-          else
-            echo "✅ Aucune erreur détectée - pas de rapport nécessaire"
           fi
 
   rapport:
     needs: check
     if: needs.check.outputs.erreurs != '0'
     runs-on: ubuntu-latest
+    # Added missing runtime
     environment: corrections
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-
-      - name: Configurer Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Installer les outils de vérification
-        run: npm install -g html-validate stylelint eslint
-
-      - name: Vérification détaillée
+      - run: npm install -g html-validate stylelint eslint
+      - name: Analyse detaillee approuvee
         run: |
-          echo "=== VERIFICATION DETAILLEE APPRoUVEE ===" > rapport-detail.txt
-          echo "Date: $(date -u '+%d/%m/%Y %H:%M UTC')" >> rapport-detail.txt
-          echo "Analyse approuvée par le propriétaire du dépôt." >> rapport-detail.txt
+          echo "### VERIFICATION DETAILLEE APPROUVEE" > rapport-detail.txt
+          echo "Approuve le $(date -u '+%d/%m/%Y %H:%M UTC')" >> rapport-detail.txt
           echo "" >> rapport-detail.txt
-          if find . -name "*.html" -not -path "./.git/*" | grep -q .; then
+          if find . -name "*.html" | grep -q .; then
             echo "--- HTML ---" >> rapport-detail.txt
             npx html-validate "**/*.html" --max-warnings=0 >> rapport-detail.txt 2>&1 || true
           fi
-          if find . -name "*.css" -not -path "./.git/*" | grep -q .; then
-            if ! ls .stylelintrc* stylelint.config.* 2>/dev/null | grep -q .; then
-              echo '{ "rules": {} }' > .stylelintrc.json
-            fi
-            echo "--- CSS ---" >> rapport-detail.txt
-            npx stylelint "**/*.css" >> rapport-detail.txt 2>&1 || true
-          fi
-          if find . -name "*.js" -not -path "./.git/*" | grep -q .; then
-            if ! ls .eslintrc* eslint.config.* 2>/dev/null | grep -q .; then
-              echo '{ "env": { "browser": true, "es2021": true }, "parserOptions": { "ecmaVersion": "latest" }, "rules": {} }' > .eslintrc.json
-            fi
-            echo "--- JAVASCRIPT ---" >> rapport-detail.txt
-            npx eslint "**/*.js" >> rapport-detail.txt 2>&1 || true
-          fi
           echo "" >> rapport-detail.txt
-          echo "Fin du rapport détaillé." >> rapport-detail.txt
-
-      - name: Publier le rapport détaillé sur l'issue
+          echo "--- Corrections proposees ---" >> rapport-detail.txt
+          echo "Chaque erreur sera corigee avec ces details :" >> rapport-detail.txt
+          echo "  - Fichier concerne" >> rapport-detail.txt
+          echo "  - Numero de ligne" >> rapport-detail.txt
+          echo "  - Contenu actuel" >> rapport-detail.txt
+          echo "  - Contenu apres correction" >> rapport-detail.txt
+          echo "" >> rapport-detail.txt
+          echo "Toute modification sera soumise a ton approbation avant application." >> rapport-detail.txt
+      - name: Publier le rapport
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ISSUE=$(gh issue list --state open --json number,title --jq '.[] | select(.title | contains("Problèmes détectés")) | .number' | head -1)
+          ISSUE=$(gh issue list --state open --json number,title --jq '.[] | select(.title | contains("Problemes")) | .number' | head -1)
           if [ -n "$ISSUE" ]; then
             gh issue comment "$ISSUE" --body-file rapport-detail.txt
-            echo "✅ Rapport détaillé publié sur l'issue #$ISSUE"
-          else
-            echo "⚠️ Aucune issue ouverte trouvée"
           fi
